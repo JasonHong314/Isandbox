@@ -9,7 +9,7 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "\n");
     fprintf(stderr, "Examples:\n");
     fprintf(stderr, "  %s run -- /bin/echo hello\n", prog);
-    fprintf(stderr, "  %s run -- bash\n", prog);
+    fprintf(stderr, "  sudo %s run -- bash\n", prog);
 }
 
 static int find_command_index(int argc, char *argv[]) {

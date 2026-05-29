@@ -6,7 +6,9 @@
 typedef struct sandbox_config {
     char name[LSANDBOX_NAME_MAX];
 
-
+    /*
+     * 第二阶段开始使用 namespace 配置。
+     */
     int enable_net;
     int enable_pid_ns;
     int enable_mount_ns;

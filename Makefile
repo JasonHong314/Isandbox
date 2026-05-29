@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -g -Iinclude
 TARGET = lsandbox
 
-SRC = src/main.c src/sandbox.c src/utils.c
+SRC = src/main.c src/sandbox.c src/namespace.c src/utils.c
 
 all: $(TARGET)
 
