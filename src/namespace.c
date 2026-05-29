@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include "namespace.h"
+#include "overlay.h"
 #include "sandbox.h"
 
 static int is_plain_bash(char **argv) {
@@ -18,13 +19,6 @@ static int is_plain_bash(char **argv) {
         return 0;
     }
 
-    /*
-     * 只处理：
-     *   ./lsandbox run -- bash
-     *   ./lsandbox run -- /bin/bash
-     *
-     * 如果用户执行 bash -c xxx，则不修改参数。
-     */
     if (argv[1] != NULL) {
         return 0;
     }
@@ -33,21 +27,16 @@ static int is_plain_bash(char **argv) {
 }
 
 static void setup_fake_sandbox_prompt(void) {
-    /*
-     * 这里只是让提示符看起来像沙盒用户。
-     * 真实用户身份还没有改变。
-     */
     setenv("LSANDBOX", "1", 1);
     setenv("LSANDBOX_USER", "sandbox", 1);
     setenv("LSANDBOX_HOST", "lsandbox", 1);
     setenv("PS1", "sandbox@lsandbox:\\w\\$ ", 1);
 }
 
-static int setup_mount_namespace(void) {
+static int setup_mount_namespace(sandbox_config_t *cfg) {
     /*
-     * 关键点：
-     * 进入新的 mount namespace 后，要先把挂载传播设置为 private。
-     * 否则沙盒内的挂载行为可能传播到外部。
+     * 进入新的 mount namespace 后，先设置 private。
+     * 这样沙盒内挂载不会传播到主机。
      */
     if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0) {
         fprintf(stderr, "Error: make / private failed: %s\n", strerror(errno));
@@ -55,11 +44,24 @@ static int setup_mount_namespace(void) {
     }
 
     /*
-     * PID namespace 里必须重新挂载 /proc。
-     * ps、top 等工具读取 /proc 来显示进程。
+     * 第三阶段：
+     * 使用 OverlayFS 隔离 /tmp。
      *
-     * 这里直接在新的 mount namespace 内覆盖挂载 proc。
-     * 不会影响主机的 /proc。
+     * 逻辑：
+     * 1. lowerdir = 主机原始 /tmp，只读视图；
+     * 2. upperdir = sandboxes/<name>/upper_tmp；
+     * 3. merged_tmp = 合并视图；
+     * 4. bind mount merged_tmp 到 /tmp；
+     * 5. 沙盒内写 /tmp 实际写入 upper_tmp。
+     */
+    if (cfg->enable_tmp_overlay) {
+        if (lsandbox_mount_tmp_overlay(cfg) < 0) {
+            return -1;
+        }
+    }
+
+    /*
+     * PID namespace 中重新挂载 /proc。
      */
     if (mount("proc", "/proc", "proc",
               MS_NOSUID | MS_NOEXEC | MS_NODEV, NULL) < 0) {
@@ -73,10 +75,6 @@ static int setup_mount_namespace(void) {
 static int child_func(void *arg) {
     sandbox_config_t *cfg = (sandbox_config_t *)arg;
 
-    /*
-     * UTS namespace：设置沙盒 hostname。
-     * 如果 UTS namespace 生效，这不会影响主机。
-     */
     if (cfg->enable_uts_ns) {
         if (sethostname("lsandbox", strlen("lsandbox")) < 0) {
             fprintf(stderr, "Error: sethostname failed: %s\n", strerror(errno));
@@ -84,21 +82,14 @@ static int child_func(void *arg) {
         }
     }
 
-    /*
-     * Mount namespace：设置挂载隔离，并重新挂载 /proc。
-     */
     if (cfg->enable_mount_ns) {
-        if (setup_mount_namespace() < 0) {
+        if (setup_mount_namespace(cfg) < 0) {
             return 1;
         }
     }
 
     setup_fake_sandbox_prompt();
 
-    /*
-     * 如果用户直接运行 bash，就改成不读取 ~/.bashrc 的交互 bash。
-     * 这样可以避免 conda 的 (base) 提示符覆盖我们的 PS1。
-     */
     if (is_plain_bash(cfg->cmd_argv)) {
         char *bash_argv[] = {
             "bash",
@@ -141,19 +132,9 @@ static int build_clone_flags(const sandbox_config_t *cfg) {
     }
 
     if (cfg->enable_net == 0) {
-        /*
-         * 第二阶段先默认禁网。
-         * 创建新的 network namespace 后，沙盒内不会直接拥有主机网卡。
-         *
-         * 如果你暂时不想禁网，可以把这一段注释掉。
-         */
         flags |= CLONE_NEWNET;
     }
 
-    /*
-     * user namespace 暂时不启用。
-     * 后续需要 UID/GID 映射。
-     */
     return flags;
 }
 
@@ -169,9 +150,6 @@ int lsandbox_clone_run(sandbox_config_t *cfg) {
         return 1;
     }
 
-    /*
-     * clone 的栈从高地址向低地址增长。
-     */
     void *stack_top = (char *)stack + LSANDBOX_STACK_SIZE;
 
     int flags = build_clone_flags(cfg);
