@@ -4,56 +4,36 @@
 #define LSANDBOX_NAME_MAX 128
 #define LSANDBOX_PATH_MAX 4096
 
+typedef enum lsandbox_seccomp_mode {
+    LSANDBOX_SECCOMP_OFF = 0,
+    LSANDBOX_SECCOMP_BASIC = 1,
+    LSANDBOX_SECCOMP_STRICT = 2
+} lsandbox_seccomp_mode_t;
+
 typedef struct sandbox_config {
     char name[LSANDBOX_NAME_MAX];
 
-    /*
-     * 沙盒运行目录：
-     *
-     * sandboxes/<name>/
-     * ├── upper_tmp/
-     * ├── work_tmp/
-     * └── merged_tmp/
-     */
     char sandbox_dir[LSANDBOX_PATH_MAX];
     char upper_tmp_dir[LSANDBOX_PATH_MAX];
     char work_tmp_dir[LSANDBOX_PATH_MAX];
     char merged_tmp_dir[LSANDBOX_PATH_MAX];
 
-    /*
-     * cgroup 目录：
-     * /sys/fs/cgroup/lsandbox/<name>
-     */
     char cgroup_dir[LSANDBOX_PATH_MAX];
 
-    /*
-     * Namespace 配置。
-     */
     int enable_net;
     int enable_pid_ns;
     int enable_mount_ns;
     int enable_uts_ns;
     int enable_ipc_ns;
     int enable_user_ns;
-    int enable_seccomp;
 
-    /*
-     * 文件系统隔离。
-     */
+    lsandbox_seccomp_mode_t seccomp_mode;
+
     int enable_tmp_overlay;
-
-    /*
-     * 是否在沙盒退出后删除写入层。
-     *
-     * 0：持久沙盒，保留 sandboxes/<name>
-     * 1：临时沙盒，退出后删除 sandboxes/<name>
-     */
     int remove_after_exit;
 
-    /*
-     * cgroups v2 资源限制。
-     */
     int enable_cgroup;
+    int keep_cgroup;
     char memory_limit[64];
     int pids_limit;
     int cpu_percent;

@@ -1,13 +1,14 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -g -Iinclude
+LDFLAGS = -lseccomp
 TARGET = lsandbox
 
-SRC = src/main.c src/sandbox.c src/namespace.c src/overlay.c src/utils.c
+SRC = src/main.c src/sandbox.c src/namespace.c src/overlay.c src/cgroup.c src/seccomp_filter.c src/utils.c
 
 all: $(TARGET)
 
 $(TARGET): $(SRC)
-	$(CC) $(CFLAGS) $(SRC) -o $(TARGET)
+	$(CC) $(CFLAGS) $(SRC) $(LDFLAGS) -o $(TARGET)
 
 clean:
 	rm -f $(TARGET)

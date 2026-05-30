@@ -10,9 +10,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "cgroup.h"
 #include "namespace.h"
 #include "overlay.h"
 #include "sandbox.h"
+#include "seccomp_filter.h"
 
 static int is_plain_bash(char **argv) {
     if (argv == NULL || argv[0] == NULL) {
@@ -34,35 +36,17 @@ static void setup_fake_sandbox_prompt(void) {
 }
 
 static int setup_mount_namespace(sandbox_config_t *cfg) {
-    /*
-     * 进入新的 mount namespace 后，先设置 private。
-     * 这样沙盒内挂载不会传播到主机。
-     */
     if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0) {
         fprintf(stderr, "Error: make / private failed: %s\n", strerror(errno));
         return -1;
     }
 
-    /*
-     * 第三阶段：
-     * 使用 OverlayFS 隔离 /tmp。
-     *
-     * 逻辑：
-     * 1. lowerdir = 主机原始 /tmp，只读视图；
-     * 2. upperdir = sandboxes/<name>/upper_tmp；
-     * 3. merged_tmp = 合并视图；
-     * 4. bind mount merged_tmp 到 /tmp；
-     * 5. 沙盒内写 /tmp 实际写入 upper_tmp。
-     */
     if (cfg->enable_tmp_overlay) {
         if (lsandbox_mount_tmp_overlay(cfg) < 0) {
             return -1;
         }
     }
 
-    /*
-     * PID namespace 中重新挂载 /proc。
-     */
     if (mount("proc", "/proc", "proc",
               MS_NOSUID | MS_NOEXEC | MS_NODEV, NULL) < 0) {
         fprintf(stderr, "Error: mount /proc failed: %s\n", strerror(errno));
@@ -89,6 +73,16 @@ static int child_func(void *arg) {
     }
 
     setup_fake_sandbox_prompt();
+
+    /*
+     * seccomp 必须在 namespace、OverlayFS、/proc 初始化之后安装。
+     */
+    if (cfg->seccomp_mode != LSANDBOX_SECCOMP_OFF) {
+        if (lsandbox_install_seccomp_filter(cfg->seccomp_mode) < 0) {
+            fprintf(stderr, "Error: failed to install seccomp filter\n");
+            return 1;
+        }
+    }
 
     if (is_plain_bash(cfg->cmd_argv)) {
         char *bash_argv[] = {
@@ -162,11 +156,23 @@ int lsandbox_clone_run(sandbox_config_t *cfg) {
         return 1;
     }
 
+    if (cfg->enable_cgroup) {
+        if (lsandbox_cgroup_apply(cfg, pid) < 0) {
+            fprintf(stderr, "Warning: failed to apply cgroup limits\n");
+        }
+    }
+
     int status = 0;
     if (waitpid(pid, &status, 0) < 0) {
         fprintf(stderr, "Error: waitpid failed: %s\n", strerror(errno));
         free(stack);
         return 1;
+    }
+
+    if (cfg->enable_cgroup) {
+        if (lsandbox_cgroup_cleanup(cfg) < 0) {
+            fprintf(stderr, "Warning: cgroup cleanup failed\n");
+        }
     }
 
     free(stack);

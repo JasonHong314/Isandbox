@@ -11,14 +11,19 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  --name <box>       Sandbox name\n");
     fprintf(stderr, "  --rm               Remove sandbox files after exit\n");
+    fprintf(stderr, "  --seccomp <mode>   Seccomp mode: off, basic, strict\n");
     fprintf(stderr, "  --mem <limit>      Memory limit, example: 64M, 512M, 1G\n");
     fprintf(stderr, "  --pids <num>       Max process count\n");
     fprintf(stderr, "  --cpu <percent>    CPU limit percent, example: 50\n");
+    fprintf(stderr, "  --keep-cgroup      Keep cgroup directory after exit for debugging\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Examples:\n");
     fprintf(stderr, "  %s run -- /bin/echo hello\n", prog);
     fprintf(stderr, "  sudo %s run --name box1 -- bash\n", prog);
     fprintf(stderr, "  sudo %s run --name temp1 --rm -- bash\n", prog);
+    fprintf(stderr, "  sudo %s run --name limitbox --mem 64M --pids 32 --cpu 50 -- bash\n", prog);
+    fprintf(stderr, "  sudo %s run --name secbox --seccomp basic -- bash\n", prog);
+    fprintf(stderr, "  sudo %s run --name strictbox --seccomp strict -- bash\n", prog);
 }
 
 static int find_command_index(int argc, char *argv[]) {
@@ -26,6 +31,29 @@ static int find_command_index(int argc, char *argv[]) {
         if (strcmp(argv[i], "--") == 0) {
             return i + 1;
         }
+    }
+
+    return -1;
+}
+
+static int parse_seccomp_mode(const char *text, lsandbox_seccomp_mode_t *mode) {
+    if (text == NULL || mode == NULL) {
+        return -1;
+    }
+
+    if (strcmp(text, "off") == 0) {
+        *mode = LSANDBOX_SECCOMP_OFF;
+        return 0;
+    }
+
+    if (strcmp(text, "basic") == 0) {
+        *mode = LSANDBOX_SECCOMP_BASIC;
+        return 0;
+    }
+
+    if (strcmp(text, "strict") == 0) {
+        *mode = LSANDBOX_SECCOMP_STRICT;
+        return 0;
     }
 
     return -1;
@@ -50,6 +78,27 @@ static int parse_run_options(int argc, char *argv[], sandbox_config_t *cfg) {
 
         if (strcmp(argv[i], "--rm") == 0) {
             cfg->remove_after_exit = 1;
+            continue;
+        }
+
+        if (strcmp(argv[i], "--seccomp") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Error: --seccomp requires a mode: off, basic, strict\n");
+                return -1;
+            }
+
+            if (parse_seccomp_mode(argv[i + 1], &cfg->seccomp_mode) < 0) {
+                fprintf(stderr, "Error: invalid seccomp mode '%s'\n", argv[i + 1]);
+                fprintf(stderr, "Valid modes: off, basic, strict\n");
+                return -1;
+            }
+
+            i++;
+            continue;
+        }
+
+        if (strcmp(argv[i], "--keep-cgroup") == 0) {
+            cfg->keep_cgroup = 1;
             continue;
         }
 

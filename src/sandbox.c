@@ -54,7 +54,7 @@ static int build_sandbox_paths(sandbox_config_t *cfg) {
 
     if (safe_snprintf(cfg->cgroup_dir,
                       sizeof(cfg->cgroup_dir),
-                      "/sys/fs/cgroup/lsandbox/%s",
+                      "/sys/fs/cgroup/lsandbox_%s",
                       cfg->name) < 0) {
         return -1;
     }
@@ -76,14 +76,15 @@ void sandbox_config_init(sandbox_config_t *cfg) {
     cfg->enable_mount_ns = 1;
     cfg->enable_uts_ns = 1;
     cfg->enable_ipc_ns = 1;
-
     cfg->enable_user_ns = 0;
-    cfg->enable_seccomp = 0;
+
+    cfg->seccomp_mode = LSANDBOX_SECCOMP_OFF;
 
     cfg->enable_tmp_overlay = 1;
     cfg->remove_after_exit = 0;
 
     cfg->enable_cgroup = 0;
+    cfg->keep_cgroup = 0;
     cfg->memory_limit[0] = '\0';
     cfg->pids_limit = 0;
     cfg->cpu_percent = 0;
