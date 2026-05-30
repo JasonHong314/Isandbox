@@ -1,6 +1,9 @@
 #define _GNU_SOURCE
 
+#include <errno.h>
+#include <pwd.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -102,14 +105,6 @@ void sandbox_config_init(sandbox_config_t *cfg) {
 
     snprintf(cfg->name, sizeof(cfg->name), "default");
 
-    /*
-     * Namespace 默认配置。
-     *
-     * 默认使用主机网络，方便 pip、curl、apt 等联网操作。
-     * 如果用户需要禁网，可以显式传：
-     *
-     *   --net off
-     */
     cfg->enable_net = 1;
 
     cfg->enable_pid_ns = 1;
@@ -118,37 +113,37 @@ void sandbox_config_init(sandbox_config_t *cfg) {
     cfg->enable_ipc_ns = 1;
     cfg->enable_user_ns = 0;
 
-    /*
-     * 默认启用 basic seccomp。
-     * basic 模式兼容性较好，同时禁止 mount、ptrace、reboot 等高危 syscall。
-     */
     cfg->seccomp_mode = LSANDBOX_SECCOMP_BASIC;
 
-    /*
-     * 默认隔离 /tmp。
-     * workdir overlay 默认关闭，避免用户误以为写入文件会保存在真实目录。
-     */
     cfg->enable_tmp_overlay = 1;
     cfg->enable_workdir_overlay = 0;
     cfg->remove_after_exit = 0;
 
-    /*
-     * 默认启用 cgroup，给出适中的资源限制。
-     *
-     * --mem 1G：
-     *   适合 Python、小型 C/C++ 程序、小规模 pip 安装。
-     *
-     * --pids 128：
-     *   防止 fork bomb，同时不影响普通程序。
-     *
-     * --cpu 100：
-     *   约等于最多使用 1 个 CPU 核心。
-     */
     cfg->enable_cgroup = 1;
     cfg->keep_cgroup = 0;
     snprintf(cfg->memory_limit, sizeof(cfg->memory_limit), "1G");
     cfg->pids_limit = 128;
     cfg->cpu_percent = 100;
+
+    cfg->enable_drop_privs = 1;
+    cfg->run_uid = getuid();
+    cfg->run_gid = getgid();
+    snprintf(cfg->run_user, sizeof(cfg->run_user), "unknown");
+    cfg->run_home[0] = '\0';
+
+    const char *sudo_uid = getenv("SUDO_UID");
+    const char *sudo_gid = getenv("SUDO_GID");
+
+    if (sudo_uid != NULL && sudo_gid != NULL) {
+        cfg->run_uid = (uid_t)atoi(sudo_uid);
+        cfg->run_gid = (gid_t)atoi(sudo_gid);
+    }
+
+    struct passwd *pw = getpwuid(cfg->run_uid);
+    if (pw != NULL) {
+        snprintf(cfg->run_user, sizeof(cfg->run_user), "%s", pw->pw_name);
+        snprintf(cfg->run_home, sizeof(cfg->run_home), "%s", pw->pw_dir);
+    }
 
     cfg->cmd_argv = NULL;
 

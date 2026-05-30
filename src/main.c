@@ -24,6 +24,7 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  --keep-cgroup      Keep cgroup directory after exit for debugging\n");
     fprintf(stderr, "  --overlay-workdir  Overlay current working directory\n");
     fprintf(stderr, "  --net <mode>       Network mode: host, off. Default: host\n");
+    fprintf(stderr, "  --no-drop-privs    Do not drop root privileges before exec\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Defaults:\n");
     fprintf(stderr, "  --net host, --mem 1G, --pids 128, --cpu 100, --seccomp basic\n");
@@ -117,6 +118,11 @@ static int parse_run_options(int argc, char *argv[], sandbox_config_t *cfg) {
 
         if (strcmp(argv[i], "--overlay-workdir") == 0) {
             cfg->enable_workdir_overlay = 1;
+            continue;
+        }
+
+        if (strcmp(argv[i], "--no-drop-privs") == 0) {
+            cfg->enable_drop_privs = 0;
             continue;
         }
 

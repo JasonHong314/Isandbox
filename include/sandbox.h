@@ -1,6 +1,8 @@
 #ifndef LSANDBOX_SANDBOX_H
 #define LSANDBOX_SANDBOX_H
 
+#include <sys/types.h>
+
 #define LSANDBOX_NAME_MAX 128
 #define LSANDBOX_PATH_MAX 4096
 
@@ -44,6 +46,12 @@ typedef struct sandbox_config {
     char memory_limit[64];
     int pids_limit;
     int cpu_percent;
+
+    int enable_drop_privs;
+    uid_t run_uid;
+    gid_t run_gid;
+    char run_user[128];
+    char run_home[LSANDBOX_PATH_MAX];
 
     char **cmd_argv;
 } sandbox_config_t;

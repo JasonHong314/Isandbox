@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include <errno.h>
+#include <grp.h>
 #include <sched.h>
 #include <signal.h>
 #include <stdio.h>
@@ -33,6 +34,44 @@ static void setup_fake_sandbox_prompt(void) {
     setenv("LSANDBOX_USER", "sandbox", 1);
     setenv("LSANDBOX_HOST", "lsandbox", 1);
     setenv("PS1", "sandbox@lsandbox:\\w\\$ ", 1);
+}
+
+static int drop_privileges(const sandbox_config_t *cfg) {
+    if (cfg == NULL || !cfg->enable_drop_privs) {
+        return 0;
+    }
+
+    if (geteuid() != 0) {
+        return 0;
+    }
+
+    if (setgroups(0, NULL) < 0) {
+        fprintf(stderr, "Error: setgroups failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    if (setgid(cfg->run_gid) < 0) {
+        fprintf(stderr, "Error: setgid(%d) failed: %s\n",
+                (int)cfg->run_gid, strerror(errno));
+        return -1;
+    }
+
+    if (setuid(cfg->run_uid) < 0) {
+        fprintf(stderr, "Error: setuid(%d) failed: %s\n",
+                (int)cfg->run_uid, strerror(errno));
+        return -1;
+    }
+
+    if (cfg->run_user[0] != '\0') {
+        setenv("USER", cfg->run_user, 1);
+        setenv("LOGNAME", cfg->run_user, 1);
+    }
+
+    if (cfg->run_home[0] != '\0') {
+        setenv("HOME", cfg->run_home, 1);
+    }
+
+    return 0;
 }
 
 static int setup_mount_namespace(sandbox_config_t *cfg) {
@@ -86,9 +125,10 @@ static int child_func(void *arg) {
 
     setup_fake_sandbox_prompt();
 
-    /*
-     * seccomp 必须在 namespace、OverlayFS、/proc 初始化之后安装。
-     */
+    if (drop_privileges(cfg) < 0) {
+        return 1;
+    }
+
     if (cfg->seccomp_mode != LSANDBOX_SECCOMP_OFF) {
         if (lsandbox_install_seccomp_filter(cfg->seccomp_mode) < 0) {
             fprintf(stderr, "Error: failed to install seccomp filter\n");
