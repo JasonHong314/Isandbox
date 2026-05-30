@@ -16,9 +16,15 @@ typedef struct sandbox_config {
     char name[LSANDBOX_NAME_MAX];
 
     char sandbox_dir[LSANDBOX_PATH_MAX];
+
+    char upper_root_dir[LSANDBOX_PATH_MAX];
+    char work_root_dir[LSANDBOX_PATH_MAX];
+    char merged_root_dir[LSANDBOX_PATH_MAX];
+
     char upper_tmp_dir[LSANDBOX_PATH_MAX];
     char work_tmp_dir[LSANDBOX_PATH_MAX];
     char merged_tmp_dir[LSANDBOX_PATH_MAX];
+    char sandbox_tmp_dir[LSANDBOX_PATH_MAX];
 
     char target_work_dir[LSANDBOX_PATH_MAX];
     char work_state_dir[LSANDBOX_PATH_MAX];
@@ -37,6 +43,7 @@ typedef struct sandbox_config {
 
     lsandbox_seccomp_mode_t seccomp_mode;
 
+    int enable_root_overlay;
     int enable_tmp_overlay;
     int enable_workdir_overlay;
     int remove_after_exit;

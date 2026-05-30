@@ -10,6 +10,7 @@
 #include "sandbox.h"
 #include "namespace.h"
 #include "overlay.h"
+#include "rootfs.h"
 
 static int safe_snprintf(char *buf, size_t size, const char *fmt, const char *arg) {
     int n = snprintf(buf, size, fmt, arg);
@@ -37,6 +38,27 @@ static int build_sandbox_paths(sandbox_config_t *cfg) {
         return -1;
     }
 
+    if (safe_snprintf(cfg->upper_root_dir,
+                      sizeof(cfg->upper_root_dir),
+                      "%s/upper_root",
+                      cfg->sandbox_dir) < 0) {
+        return -1;
+    }
+
+    if (safe_snprintf(cfg->work_root_dir,
+                      sizeof(cfg->work_root_dir),
+                      "%s/work_root",
+                      cfg->sandbox_dir) < 0) {
+        return -1;
+    }
+
+    if (safe_snprintf(cfg->merged_root_dir,
+                      sizeof(cfg->merged_root_dir),
+                      "%s/merged_root",
+                      cfg->sandbox_dir) < 0) {
+        return -1;
+    }
+
     if (safe_snprintf(cfg->upper_tmp_dir,
                       sizeof(cfg->upper_tmp_dir),
                       "%s/upper_tmp",
@@ -54,6 +76,13 @@ static int build_sandbox_paths(sandbox_config_t *cfg) {
     if (safe_snprintf(cfg->merged_tmp_dir,
                       sizeof(cfg->merged_tmp_dir),
                       "%s/merged_tmp",
+                      cfg->sandbox_dir) < 0) {
+        return -1;
+    }
+
+    if (safe_snprintf(cfg->sandbox_tmp_dir,
+                      sizeof(cfg->sandbox_tmp_dir),
+                      "%s/tmp",
                       cfg->sandbox_dir) < 0) {
         return -1;
     }
@@ -115,7 +144,8 @@ void sandbox_config_init(sandbox_config_t *cfg) {
 
     cfg->seccomp_mode = LSANDBOX_SECCOMP_BASIC;
 
-    cfg->enable_tmp_overlay = 1;
+    cfg->enable_root_overlay = 1;
+    cfg->enable_tmp_overlay = 0;
     cfg->enable_workdir_overlay = 0;
     cfg->remove_after_exit = 0;
 
@@ -176,13 +206,19 @@ int sandbox_run(sandbox_config_t *cfg) {
         return 1;
     }
 
-    if (cfg->enable_tmp_overlay) {
+    if (cfg->enable_root_overlay) {
+        if (lsandbox_prepare_rootfs_dirs(cfg) < 0) {
+            return 1;
+        }
+    }
+
+    if (!cfg->enable_root_overlay && cfg->enable_tmp_overlay) {
         if (lsandbox_prepare_overlay_dirs(cfg) < 0) {
             return 1;
         }
     }
 
-    if (cfg->enable_workdir_overlay) {
+    if (!cfg->enable_root_overlay && cfg->enable_workdir_overlay) {
         if (lsandbox_prepare_workdir_overlay_dirs(cfg) < 0) {
             return 1;
         }

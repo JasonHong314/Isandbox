@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sys/mount.h>
+#include <sys/stat.h>
 
 #include "overlay.h"
 #include "sandbox.h"
@@ -25,15 +26,22 @@ int lsandbox_prepare_overlay_dirs(sandbox_config_t *cfg) {
         return -1;
     }
 
-    if (lsandbox_mkdir_p(cfg->upper_tmp_dir, 0755) < 0) {
+    /*
+     * 新设计：
+     * /tmp 不再使用 host /tmp 作为 lowerdir。
+     * 直接使用 sandboxes/<name>/tmp 作为沙盒私有临时目录。
+     */
+    if (lsandbox_mkdir_p(cfg->sandbox_tmp_dir, 0777) < 0) {
         return -1;
     }
 
-    if (lsandbox_mkdir_p(cfg->work_tmp_dir, 0755) < 0) {
-        return -1;
-    }
-
-    if (lsandbox_mkdir_p(cfg->merged_tmp_dir, 0755) < 0) {
+    /*
+     * /tmp 语义应为 1777：
+     * 所有人可写，但只能删除自己的文件。
+     */
+    if (chmod(cfg->sandbox_tmp_dir, 01777) < 0) {
+        fprintf(stderr, "Error: chmod '%s' failed: %s\n",
+                cfg->sandbox_tmp_dir, strerror(errno));
         return -1;
     }
 
@@ -67,34 +75,6 @@ int lsandbox_prepare_workdir_overlay_dirs(sandbox_config_t *cfg) {
     }
 
     if (lsandbox_mkdir_p(cfg->merged_work_dir, 0755) < 0) {
-        return -1;
-    }
-
-    return 0;
-}
-
-static int build_tmp_overlay_options(char *buf,
-                                     size_t size,
-                                     const sandbox_config_t *cfg) {
-    int n;
-
-    if (buf == NULL || cfg == NULL) {
-        return -1;
-    }
-
-    n = snprintf(buf,
-                 size,
-                 "lowerdir=/tmp,upperdir=%s,workdir=%s",
-                 cfg->upper_tmp_dir,
-                 cfg->work_tmp_dir);
-
-    if (n < 0) {
-        fprintf(stderr, "Error: snprintf tmp overlay options failed\n");
-        return -1;
-    }
-
-    if ((size_t)n >= size) {
-        fprintf(stderr, "Error: tmp overlay mount options too long\n");
         return -1;
     }
 
@@ -135,28 +115,24 @@ int lsandbox_mount_tmp_overlay(const sandbox_config_t *cfg) {
         return -1;
     }
 
-    char options[LSANDBOX_OVERLAY_OPT_MAX];
-
-    if (build_tmp_overlay_options(options, sizeof(options), cfg) < 0) {
-        return -1;
-    }
-
-    if (mount("overlay",
-              cfg->merged_tmp_dir,
-              "overlay",
-              0,
-              options) < 0) {
-        fprintf(stderr, "Error: mount overlay for /tmp failed: %s\n", strerror(errno));
-        fprintf(stderr, "Overlay options: %s\n", options);
-        return -1;
-    }
-
-    if (mount(cfg->merged_tmp_dir,
+    /*
+     * 新设计：
+     * 在新的 mount namespace 内，把沙盒私有 tmp 目录 bind 到 /tmp。
+     *
+     * 沙盒内看到的是 /tmp；
+     * 实际写入位置是 sandboxes/<name>/tmp。
+     *
+     * 因为当前已经执行了：
+     *   mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL)
+     * 所以这个 bind mount 不会传播到主机。
+     */
+    if (mount(cfg->sandbox_tmp_dir,
               "/tmp",
               NULL,
               MS_BIND | MS_REC,
               NULL) < 0) {
-        fprintf(stderr, "Error: bind merged_tmp to /tmp failed: %s\n", strerror(errno));
+        fprintf(stderr, "Error: bind sandbox tmp to /tmp failed: %s\n",
+                strerror(errno));
         return -1;
     }
 

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "log.h"
 #include "manage.h"
 #include "sandbox.h"
 
@@ -10,6 +11,7 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  %s run [options] -- <command> [args...]\n", prog);
     fprintf(stderr, "  %s list\n", prog);
     fprintf(stderr, "  %s inspect <name>\n", prog);
+    fprintf(stderr, "  %s logs\n", prog);
     fprintf(stderr, "  sudo %s clean <name>\n", prog);
     fprintf(stderr, "  sudo %s delete <name>\n", prog);
     fprintf(stderr, "  sudo %s clean-cgroups\n", prog);
@@ -254,6 +256,15 @@ int main(int argc, char *argv[]) {
         }
 
         return lsandbox_manage_inspect(argv[2]);
+    }
+
+    if (strcmp(argv[1], "logs") == 0) {
+        if (argc != 2) {
+            print_usage(argv[0]);
+            return 1;
+        }
+
+        return lsandbox_log_show();
     }
 
     if (strcmp(argv[1], "clean") == 0) {

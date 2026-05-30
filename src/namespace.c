@@ -12,8 +12,10 @@
 #include <unistd.h>
 
 #include "cgroup.h"
+#include "log.h"
 #include "namespace.h"
 #include "overlay.h"
+#include "rootfs.h"
 #include "sandbox.h"
 #include "seccomp_filter.h"
 
@@ -78,6 +80,18 @@ static int setup_mount_namespace(sandbox_config_t *cfg) {
     if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0) {
         fprintf(stderr, "Error: make / private failed: %s\n", strerror(errno));
         return -1;
+    }
+
+    if (cfg->enable_root_overlay) {
+        if (lsandbox_enter_rootfs(cfg) < 0) {
+            return -1;
+        }
+
+        if (lsandbox_setup_sandbox_resolv_conf() < 0) {
+            fprintf(stderr, "Warning: failed to setup sandbox resolv.conf\n");
+        }
+
+        return 0;
     }
 
     if (cfg->enable_tmp_overlay) {
@@ -208,6 +222,8 @@ int lsandbox_clone_run(sandbox_config_t *cfg) {
         return 1;
     }
 
+    lsandbox_log_start(cfg, pid);
+
     if (cfg->enable_cgroup) {
         if (lsandbox_cgroup_apply(cfg, pid) < 0) {
             fprintf(stderr, "Warning: failed to apply cgroup limits\n");
@@ -230,11 +246,14 @@ int lsandbox_clone_run(sandbox_config_t *cfg) {
     free(stack);
 
     if (WIFEXITED(status)) {
-        return WEXITSTATUS(status);
+        int code = WEXITSTATUS(status);
+        lsandbox_log_exit(cfg, pid, code);
+        return code;
     }
 
     if (WIFSIGNALED(status)) {
         int sig = WTERMSIG(status);
+        lsandbox_log_signal(cfg, pid, sig);
         fprintf(stderr, "Process killed by signal %d\n", sig);
         return 128 + sig;
     }
