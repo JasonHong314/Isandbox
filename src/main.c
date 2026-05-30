@@ -2,13 +2,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "manage.h"
 #include "sandbox.h"
 
 static void print_usage(const char *prog) {
     fprintf(stderr, "Usage:\n");
     fprintf(stderr, "  %s run [options] -- <command> [args...]\n", prog);
+    fprintf(stderr, "  %s list\n", prog);
+    fprintf(stderr, "  %s inspect <name>\n", prog);
+    fprintf(stderr, "  sudo %s clean <name>\n", prog);
+    fprintf(stderr, "  sudo %s delete <name>\n", prog);
+    fprintf(stderr, "  sudo %s clean-cgroups\n", prog);
     fprintf(stderr, "\n");
-    fprintf(stderr, "Options:\n");
+    fprintf(stderr, "Run options:\n");
     fprintf(stderr, "  --name <box>       Sandbox name\n");
     fprintf(stderr, "  --rm               Remove sandbox files after exit\n");
     fprintf(stderr, "  --seccomp <mode>   Seccomp mode: off, basic, strict\n");
@@ -23,7 +29,10 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  sudo %s run --name temp1 --rm -- bash\n", prog);
     fprintf(stderr, "  sudo %s run --name limitbox --mem 64M --pids 32 --cpu 50 -- bash\n", prog);
     fprintf(stderr, "  sudo %s run --name secbox --seccomp basic -- bash\n", prog);
-    fprintf(stderr, "  sudo %s run --name strictbox --seccomp strict -- bash\n", prog);
+    fprintf(stderr, "  %s list\n", prog);
+    fprintf(stderr, "  %s inspect box1\n", prog);
+    fprintf(stderr, "  sudo %s clean box1\n", prog);
+    fprintf(stderr, "  sudo %s delete box1\n", prog);
 }
 
 static int find_command_index(int argc, char *argv[]) {
@@ -155,19 +164,15 @@ static int parse_run_options(int argc, char *argv[], sandbox_config_t *cfg) {
     return 0;
 }
 
-int main(int argc, char *argv[]) {
+static int handle_run(int argc, char *argv[]) {
+    sandbox_config_t cfg;
+    int cmd_index;
+
     if (argc < 4) {
         print_usage(argv[0]);
         return 1;
     }
 
-    if (strcmp(argv[1], "run") != 0) {
-        fprintf(stderr, "Error: unsupported command '%s'\n", argv[1]);
-        print_usage(argv[0]);
-        return 1;
-    }
-
-    sandbox_config_t cfg;
     sandbox_config_init(&cfg);
 
     if (parse_run_options(argc, argv, &cfg) < 0) {
@@ -175,7 +180,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    int cmd_index = find_command_index(argc, argv);
+    cmd_index = find_command_index(argc, argv);
     if (cmd_index == -1 || cmd_index >= argc) {
         fprintf(stderr, "Error: missing command after '--'\n");
         print_usage(argv[0]);
@@ -185,4 +190,64 @@ int main(int argc, char *argv[]) {
     cfg.cmd_argv = &argv[cmd_index];
 
     return sandbox_run(&cfg);
+}
+
+int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        print_usage(argv[0]);
+        return 1;
+    }
+
+    if (strcmp(argv[1], "run") == 0) {
+        return handle_run(argc, argv);
+    }
+
+    if (strcmp(argv[1], "list") == 0) {
+        if (argc != 2) {
+            print_usage(argv[0]);
+            return 1;
+        }
+
+        return lsandbox_manage_list();
+    }
+
+    if (strcmp(argv[1], "inspect") == 0) {
+        if (argc != 3) {
+            print_usage(argv[0]);
+            return 1;
+        }
+
+        return lsandbox_manage_inspect(argv[2]);
+    }
+
+    if (strcmp(argv[1], "clean") == 0) {
+        if (argc != 3) {
+            print_usage(argv[0]);
+            return 1;
+        }
+
+        return lsandbox_manage_clean(argv[2]);
+    }
+
+    if (strcmp(argv[1], "delete") == 0) {
+        if (argc != 3) {
+            print_usage(argv[0]);
+            return 1;
+        }
+
+        return lsandbox_manage_delete(argv[2]);
+    }
+
+    if (strcmp(argv[1], "clean-cgroups") == 0) {
+        if (argc != 2) {
+            print_usage(argv[0]);
+            return 1;
+        }
+
+        return lsandbox_manage_clean_cgroups();
+    }
+
+    fprintf(stderr, "Error: unsupported command '%s'\n", argv[1]);
+    print_usage(argv[0]);
+    return 1;
 }
