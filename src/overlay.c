@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <sys/mount.h>
 
 #include "overlay.h"
@@ -39,9 +40,42 @@ int lsandbox_prepare_overlay_dirs(sandbox_config_t *cfg) {
     return 0;
 }
 
-static int build_overlay_options(char *buf,
-                                 size_t size,
-                                 const sandbox_config_t *cfg) {
+int lsandbox_prepare_workdir_overlay_dirs(sandbox_config_t *cfg) {
+    if (cfg == NULL) {
+        return -1;
+    }
+
+    if (cfg->target_work_dir[0] == '\0') {
+        fprintf(stderr, "Error: empty target workdir\n");
+        return -1;
+    }
+
+    if (lsandbox_mkdir_p("/var/tmp/lsandbox", 0755) < 0) {
+        return -1;
+    }
+
+    if (lsandbox_mkdir_p(cfg->work_state_dir, 0755) < 0) {
+        return -1;
+    }
+
+    if (lsandbox_mkdir_p(cfg->upper_work_dir, 0755) < 0) {
+        return -1;
+    }
+
+    if (lsandbox_mkdir_p(cfg->work_work_dir, 0755) < 0) {
+        return -1;
+    }
+
+    if (lsandbox_mkdir_p(cfg->merged_work_dir, 0755) < 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+static int build_tmp_overlay_options(char *buf,
+                                     size_t size,
+                                     const sandbox_config_t *cfg) {
     int n;
 
     if (buf == NULL || cfg == NULL) {
@@ -55,12 +89,41 @@ static int build_overlay_options(char *buf,
                  cfg->work_tmp_dir);
 
     if (n < 0) {
-        fprintf(stderr, "Error: snprintf overlay options failed\n");
+        fprintf(stderr, "Error: snprintf tmp overlay options failed\n");
         return -1;
     }
 
     if ((size_t)n >= size) {
-        fprintf(stderr, "Error: overlay mount options too long\n");
+        fprintf(stderr, "Error: tmp overlay mount options too long\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int build_workdir_overlay_options(char *buf,
+                                         size_t size,
+                                         const sandbox_config_t *cfg) {
+    int n;
+
+    if (buf == NULL || cfg == NULL) {
+        return -1;
+    }
+
+    n = snprintf(buf,
+                 size,
+                 "lowerdir=%s,upperdir=%s,workdir=%s",
+                 cfg->target_work_dir,
+                 cfg->upper_work_dir,
+                 cfg->work_work_dir);
+
+    if (n < 0) {
+        fprintf(stderr, "Error: snprintf workdir overlay options failed\n");
+        return -1;
+    }
+
+    if ((size_t)n >= size) {
+        fprintf(stderr, "Error: workdir overlay mount options too long\n");
         return -1;
     }
 
@@ -74,7 +137,7 @@ int lsandbox_mount_tmp_overlay(const sandbox_config_t *cfg) {
 
     char options[LSANDBOX_OVERLAY_OPT_MAX];
 
-    if (build_overlay_options(options, sizeof(options), cfg) < 0) {
+    if (build_tmp_overlay_options(options, sizeof(options), cfg) < 0) {
         return -1;
     }
 
@@ -88,10 +151,6 @@ int lsandbox_mount_tmp_overlay(const sandbox_config_t *cfg) {
         return -1;
     }
 
-    /*
-     * 这里把 overlay 的 merged_tmp 绑定到沙盒内 /tmp。
-     * 由于当前处于新的 mount namespace 中，这不会影响主机。
-     */
     if (mount(cfg->merged_tmp_dir,
               "/tmp",
               NULL,
@@ -104,20 +163,78 @@ int lsandbox_mount_tmp_overlay(const sandbox_config_t *cfg) {
     return 0;
 }
 
-int lsandbox_cleanup_overlay_dirs(const sandbox_config_t *cfg) {
+int lsandbox_mount_workdir_overlay(const sandbox_config_t *cfg) {
     if (cfg == NULL) {
         return -1;
     }
 
-    /*
-     * 挂载发生在子进程的 mount namespace 中。
-     * 子进程退出后，该 namespace 销毁，挂载通常已经随之消失。
-     *
-     * 父进程这里主要负责删除持久化目录。
-     */
-    if (cfg->sandbox_dir[0] == '\0') {
+    char options[LSANDBOX_OVERLAY_OPT_MAX];
+
+    if (build_workdir_overlay_options(options, sizeof(options), cfg) < 0) {
         return -1;
     }
 
-    return lsandbox_remove_recursive(cfg->sandbox_dir);
+    if (mount("overlay",
+              cfg->merged_work_dir,
+              "overlay",
+              0,
+              options) < 0) {
+        fprintf(stderr, "Error: mount overlay for workdir failed: %s\n", strerror(errno));
+        fprintf(stderr, "Overlay options: %s\n", options);
+        return -1;
+    }
+
+    if (mount(cfg->merged_work_dir,
+              cfg->target_work_dir,
+              NULL,
+              MS_BIND | MS_REC,
+              NULL) < 0) {
+        fprintf(stderr, "Error: bind merged_work to target workdir failed: %s\n",
+                strerror(errno));
+        return -1;
+    }
+
+    return 0;
+}
+
+static int remove_var_tmp_state(const char *path) {
+    const char *prefix = "/var/tmp/lsandbox/";
+
+    if (path == NULL || strncmp(path, prefix, strlen(prefix)) != 0) {
+        fprintf(stderr, "Error: refuse to remove unsafe work state path '%s'\n",
+                path ? path : "(null)");
+        return -1;
+    }
+
+    char cmd[LSANDBOX_PATH_MAX + 32];
+    int n = snprintf(cmd, sizeof(cmd), "rm -rf -- '%s'", path);
+
+    if (n < 0 || (size_t)n >= sizeof(cmd)) {
+        fprintf(stderr, "Error: cleanup command too long\n");
+        return -1;
+    }
+
+    return system(cmd);
+}
+
+int lsandbox_cleanup_overlay_dirs(const sandbox_config_t *cfg) {
+    int rc = 0;
+
+    if (cfg == NULL) {
+        return -1;
+    }
+
+    if (cfg->sandbox_dir[0] != '\0') {
+        if (lsandbox_remove_recursive(cfg->sandbox_dir) < 0) {
+            rc = -1;
+        }
+    }
+
+    if (cfg->work_state_dir[0] != '\0') {
+        if (remove_var_tmp_state(cfg->work_state_dir) != 0) {
+            rc = -1;
+        }
+    }
+
+    return rc;
 }

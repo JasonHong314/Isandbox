@@ -47,6 +47,18 @@ static int setup_mount_namespace(sandbox_config_t *cfg) {
         }
     }
 
+    if (cfg->enable_workdir_overlay) {
+        if (lsandbox_mount_workdir_overlay(cfg) < 0) {
+            return -1;
+        }
+
+        if (chdir(cfg->target_work_dir) < 0) {
+            fprintf(stderr, "Error: chdir to workdir overlay target failed: %s\n",
+                    strerror(errno));
+            return -1;
+        }
+    }
+
     if (mount("proc", "/proc", "proc",
               MS_NOSUID | MS_NOEXEC | MS_NODEV, NULL) < 0) {
         fprintf(stderr, "Error: mount /proc failed: %s\n", strerror(errno));

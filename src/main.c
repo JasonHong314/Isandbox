@@ -22,6 +22,11 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  --pids <num>       Max process count\n");
     fprintf(stderr, "  --cpu <percent>    CPU limit percent, example: 50\n");
     fprintf(stderr, "  --keep-cgroup      Keep cgroup directory after exit for debugging\n");
+    fprintf(stderr, "  --overlay-workdir  Overlay current working directory\n");
+    fprintf(stderr, "  --net <mode>       Network mode: host, off. Default: host\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "Defaults:\n");
+    fprintf(stderr, "  --net host, --mem 1G, --pids 128, --cpu 100, --seccomp basic\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Examples:\n");
     fprintf(stderr, "  %s run -- /bin/echo hello\n", prog);
@@ -87,6 +92,31 @@ static int parse_run_options(int argc, char *argv[], sandbox_config_t *cfg) {
 
         if (strcmp(argv[i], "--rm") == 0) {
             cfg->remove_after_exit = 1;
+            continue;
+        }
+
+        if (strcmp(argv[i], "--net") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Error: --net requires a mode: host, off\n");
+                return -1;
+            }
+
+            if (strcmp(argv[i + 1], "host") == 0) {
+                cfg->enable_net = 1;
+            } else if (strcmp(argv[i + 1], "off") == 0) {
+                cfg->enable_net = 0;
+            } else {
+                fprintf(stderr, "Error: invalid net mode '%s'\n", argv[i + 1]);
+                fprintf(stderr, "Valid modes: host, off\n");
+                return -1;
+            }
+
+            i++;
+            continue;
+        }
+
+        if (strcmp(argv[i], "--overlay-workdir") == 0) {
+            cfg->enable_workdir_overlay = 1;
             continue;
         }
 
