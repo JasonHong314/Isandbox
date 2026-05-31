@@ -94,62 +94,147 @@ static int mount_root_overlay(const sandbox_config_t *cfg) {
     return 0;
 }
 
-static int setup_minimal_dev(const char *root) {
-    char dev_path[LSANDBOX_PATH_MAX];
-    char node_path[LSANDBOX_PATH_MAX];
+static int create_char_device(const char *dev_dir,
+                              const char *name,
+                              int major_no,
+                              int minor_no,
+                              mode_t mode) {
+    char path[LSANDBOX_PATH_MAX];
 
-    if (path_join(dev_path, sizeof(dev_path), root, "dev") < 0) {
+    if (path_join(path, sizeof(path), dev_dir, name) < 0) {
         return -1;
     }
 
-    if (lsandbox_mkdir_p(dev_path, 0755) < 0) {
+    unlink(path);
+
+    if (mknod(path, S_IFCHR | mode, makedev(major_no, minor_no)) < 0) {
+        fprintf(stderr, "Error: mknod %s failed: %s\n",
+                path, strerror(errno));
         return -1;
     }
 
-    if (mount("tmpfs", dev_path, "tmpfs", MS_NOSUID, "mode=755") < 0) {
-        fprintf(stderr, "Error: mount tmpfs /dev failed: %s\n", strerror(errno));
+    if (chmod(path, mode) < 0) {
+        fprintf(stderr, "Error: chmod %s failed: %s\n",
+                path, strerror(errno));
         return -1;
     }
 
-    struct {
-        const char *name;
-        int major_no;
-        int minor_no;
-        mode_t mode;
-    } nodes[] = {
-        {"null",   1, 3, 0666},
-        {"zero",   1, 5, 0666},
-        {"random", 1, 8, 0666},
-        {"urandom",1, 9, 0666},
-        {"tty",    5, 0, 0666},
-    };
+    return 0;
+}
 
-    for (size_t i = 0; i < sizeof(nodes) / sizeof(nodes[0]); i++) {
-        if (path_join(node_path, sizeof(node_path), dev_path, nodes[i].name) < 0) {
-            return -1;
-        }
+static int create_symlink_force(const char *target, const char *link_path) {
+    unlink(link_path);
 
-        unlink(node_path);
-
-        if (mknod(node_path,
-                  S_IFCHR | nodes[i].mode,
-                  makedev(nodes[i].major_no, nodes[i].minor_no)) < 0) {
-            fprintf(stderr, "Warning: mknod %s failed: %s\n",
-                    node_path, strerror(errno));
-        }
+    if (symlink(target, link_path) < 0) {
+        fprintf(stderr, "Warning: symlink %s -> %s failed: %s\n",
+                link_path, target, strerror(errno));
+        return -1;
     }
 
-    path_join(node_path, sizeof(node_path), dev_path, "fd");
-    symlink("/proc/self/fd", node_path);
+    return 0;
+}
 
-    path_join(node_path, sizeof(node_path), dev_path, "stdin");
-    symlink("/proc/self/fd/0", node_path);
+static int setup_private_dev(const char *root) {
+    char dev_dir[LSANDBOX_PATH_MAX];
+    char path[LSANDBOX_PATH_MAX];
 
-    path_join(node_path, sizeof(node_path), dev_path, "stdout");
-    symlink("/proc/self/fd/1", node_path);
+    if (path_join(dev_dir, sizeof(dev_dir), root, "dev") < 0) {
+        return -1;
+    }
 
-    path_join(node_path, sizeof(node_path), dev_path, "stderr");
-    symlink("/proc/self/fd/2", node_path);
+    if (lsandbox_mkdir_p(dev_dir, 0755) < 0) {
+        return -1;
+    }
+
+    if (mount("tmpfs", dev_dir, "tmpfs",
+              MS_NOSUID | MS_NOEXEC,
+              "mode=1777") < 0) {
+        fprintf(stderr, "Error: mount private /dev tmpfs failed: %s\n",
+                strerror(errno));
+        return -1;
+    }
+
+    if (chmod(dev_dir, 01777) < 0) {
+        fprintf(stderr, "Error: chmod private /dev failed: %s\n",
+                strerror(errno));
+        return -1;
+    }
+
+    if (create_char_device(dev_dir, "null", 1, 3, 0666) < 0) {
+        return -1;
+    }
+
+    if (create_char_device(dev_dir, "zero", 1, 5, 0666) < 0) {
+        return -1;
+    }
+
+    if (create_char_device(dev_dir, "full", 1, 7, 0666) < 0) {
+        return -1;
+    }
+
+    if (create_char_device(dev_dir, "random", 1, 8, 0666) < 0) {
+        return -1;
+    }
+
+    if (create_char_device(dev_dir, "urandom", 1, 9, 0666) < 0) {
+        return -1;
+    }
+
+    if (create_char_device(dev_dir, "tty", 5, 0, 0666) < 0) {
+        return -1;
+    }
+
+    if (path_join(path, sizeof(path), dev_dir, "fd") == 0) {
+        create_symlink_force("/proc/self/fd", path);
+    }
+
+    if (path_join(path, sizeof(path), dev_dir, "stdin") == 0) {
+        create_symlink_force("/proc/self/fd/0", path);
+    }
+
+    if (path_join(path, sizeof(path), dev_dir, "stdout") == 0) {
+        create_symlink_force("/proc/self/fd/1", path);
+    }
+
+    if (path_join(path, sizeof(path), dev_dir, "stderr") == 0) {
+        create_symlink_force("/proc/self/fd/2", path);
+    }
+
+    if (path_join(path, sizeof(path), dev_dir, "shm") < 0) {
+        return -1;
+    }
+
+    if (lsandbox_mkdir_p(path, 01777) < 0) {
+        return -1;
+    }
+
+    if (mount("tmpfs", path, "tmpfs",
+              MS_NOSUID | MS_NODEV,
+              "mode=1777") < 0) {
+        fprintf(stderr, "Warning: mount /dev/shm failed: %s\n",
+                strerror(errno));
+    } else {
+        chmod(path, 01777);
+    }
+
+    if (path_join(path, sizeof(path), dev_dir, "pts") < 0) {
+        return -1;
+    }
+
+    if (lsandbox_mkdir_p(path, 0755) < 0) {
+        return -1;
+    }
+
+    if (mount("devpts", path, "devpts",
+              MS_NOSUID | MS_NOEXEC,
+              "newinstance,ptmxmode=0666,mode=0620") < 0) {
+        fprintf(stderr, "Warning: mount /dev/pts failed: %s\n",
+                strerror(errno));
+    }
+
+    if (path_join(path, sizeof(path), dev_dir, "ptmx") == 0) {
+        create_symlink_force("pts/ptmx", path);
+    }
 
     return 0;
 }
@@ -170,7 +255,7 @@ static int mount_runtime_fs(const sandbox_config_t *cfg) {
         return -1;
     }
 
-    if (setup_minimal_dev(cfg->merged_root_dir) < 0) {
+    if (setup_private_dev(cfg->merged_root_dir) < 0) {
         return -1;
     }
 
