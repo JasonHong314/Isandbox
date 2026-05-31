@@ -24,3 +24,102 @@
 [2026-05-30 21:34:04] EXIT  name=testbox pid=313712 code=6
 [2026-05-30 21:34:16] START name=testbox pid=327821 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=0
 [2026-05-30 21:34:34] EXIT  name=testbox pid=327821 code=0
+[2026-05-30 22:03:46] START name=nettest pid=364828 cmd="curl -I https://pypi.org" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 22:03:48] EXIT  name=nettest pid=364828 code=0
+[2026-05-30 22:54:05] START name=test_basic pid=2854 cmd="echo hello lsandbox" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 22:54:05] EXIT  name=test_basic pid=2854 code=0
+[2026-05-30 22:54:12] START name=test_shell pid=2983 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 22:54:22] EXIT  name=test_shell pid=2983 code=0
+[2026-05-30 22:54:48] START name=test_uts pid=3673 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 22:54:53] EXIT  name=test_uts pid=3673 code=0
+[2026-05-30 22:55:14] START name=test_pid pid=4179 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 22:55:24] EXIT  name=test_pid pid=4179 code=0
+[2026-05-30 22:56:09] START name=test_proc pid=5094 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 22:56:15] EXIT  name=test_proc pid=5094 code=0
+[2026-05-30 22:57:22] START name=test_file pid=6241 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 22:57:27] EXIT  name=test_file pid=6241 code=0
+[2026-05-30 22:58:31] START name=test_rm pid=7399 cmd="bash -c echo hello > /tmp/rm_test.txt" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 22:58:31] EXIT  name=test_rm pid=7399 code=0
+[2026-05-30 22:58:45] START name=test_keep pid=7624 cmd="bash -c echo keep > /tmp/keep_test.txt" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=0
+[2026-05-30 22:58:45] EXIT  name=test_keep pid=7624 code=0
+[2026-05-30 22:59:15] START name=test_mem pid=8156 cmd="python3 -" net=host mem=64M pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 22:59:15] SIGNAL name=test_mem pid=8156 signal=9
+[2026-05-30 23:00:03] START name=test_pids pid=8891 cmd="bash -c 
+count=0
+while true; do
+  sleep 60 &
+  count=$((count+1))
+  echo "started $count"
+done
+" net=host mem=1G pids=32 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 23:00:19] EXIT  name=test_pids pid=8891 code=254
+[2026-05-30 23:00:50] START name=test_net pid=12550 cmd="bash -c curl -I --max-time 10 https://pypi.org | head" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 23:00:53] EXIT  name=test_net pid=12550 code=0
+[2026-05-30 23:02:10] START name=test_dns pid=13767 cmd="bash -c 
+getent hosts pypi.org || true
+python3 - <<"PY"
+import socket
+print(socket.gethostbyname("pypi.org"))
+PY
+" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 23:02:10] EXIT  name=test_dns pid=13767 code=0
+[2026-05-30 23:02:45] START name=test_download pid=14477 cmd="bash -c 
+cd /tmp
+curl -L --max-time 20 https://www.example.com -o lsandbox_download_test.html
+ls -lh /tmp/lsandbox_download_test.html
+" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 23:02:50] EXIT  name=test_download pid=14477 code=0
+[2026-05-30 23:03:11] START name=test_pip pid=15097 cmd="bash -c 
+python3 -m venv /tmp/venv
+source /tmp/venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install requests
+python - <<"PY"
+import requests
+r = requests.get("https://pypi.org", timeout=10)
+print(r.status_code)
+print(requests.__version__)
+PY
+" net=host mem=2G pids=256 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 23:03:11] EXIT  name=test_pip pid=15097 code=127
+[2026-05-30 23:05:20] START name=test_pip pid=18122 cmd="bash -c 
+set -e
+
+python3 -m venv /tmp/venv
+source /tmp/venv/bin/activate
+
+python -m pip install --upgrade pip
+python -m pip install requests
+
+python - <<'PY'
+import requests
+
+r = requests.get("https://pypi.org", timeout=10)
+print("status:", r.status_code)
+print("requests:", requests.__version__)
+PY
+" net=host mem=2G pids=256 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 23:05:22] EXIT  name=test_pip pid=18122 code=1
+[2026-05-30 23:06:35] START name=test_pip pid=19487 cmd="bash" net=host mem=2G pids=256 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 23:12:16] EXIT  name=test_pip pid=19487 code=0
+[2026-05-30 23:14:08] START name=test_seccomp pid=29540 cmd="bash -c 
+echo ok
+ls /tmp >/dev/null
+cat /proc/self/status | head >/dev/null
+python3 -c "print(123)"
+" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 23:14:08] EXIT  name=test_seccomp pid=29540 code=0
+[2026-05-30 23:14:25] START name=test_fail pid=29885 cmd="bash -c echo before_fail > /tmp/fail.txt; exit 42" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-30 23:14:25] EXIT  name=test_fail pid=29885 code=42
+[2026-05-31 10:38:17] START name=test_pip pid=14198 cmd="bash" net=host mem=2G pids=256 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-31 11:02:10] EXIT  name=test_pip pid=14198 code=0
+[2026-05-31 11:02:19] START name=test_pip pid=42520 cmd="bash" net=host mem=2G pids=256 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-31 11:02:54] EXIT  name=test_pip pid=42520 code=1
+[2026-05-31 11:04:25] START name=test_pip pid=44837 cmd="bash" net=host mem=2G pids=256 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-31 11:09:49] EXIT  name=test_pip pid=44837 code=0
+[2026-05-31 11:09:58] START name=test_pip pid=51712 cmd="bash" net=host mem=2G pids=256 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-31 11:23:25] EXIT  name=test_pip pid=51712 code=128
+[2026-05-31 11:23:30] START name=devbox pid=68408 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-31 11:23:40] EXIT  name=devbox pid=68408 code=0
+[2026-05-31 11:24:23] START name=gitbox pid=69440 cmd="bash" net=host mem=2G pids=256 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-05-31 11:24:35] EXIT  name=gitbox pid=69440 code=0
