@@ -123,3 +123,11 @@ python3 -c "print(123)"
 [2026-05-31 11:23:40] EXIT  name=devbox pid=68408 code=0
 [2026-05-31 11:24:23] START name=gitbox pid=69440 cmd="bash" net=host mem=2G pids=256 cpu=100 seccomp=basic tmp=off workdir=off rm=1
 [2026-05-31 11:24:35] EXIT  name=gitbox pid=69440 code=0
+[2026-06-01 18:51:01] START name=vscodetest pid=484 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=0
+[2026-06-01 19:17:02] START name=codebox pid=7500 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-06-01 19:22:39] EXIT  name=codebox pid=7500 code=127
+[2026-06-01 19:24:04] START name=vscodebox pid=14968 cmd="bash" net=host mem=4G pids=512 cpu=100 seccomp=off tmp=off workdir=off rm=0
+[2026-06-01 19:30:07] EXIT  name=vscodebox pid=14968 code=1
+[2026-06-01 19:30:09] START name=vscodebox pid=23856 cmd="bash" net=host mem=4G pids=512 cpu=100 seccomp=off tmp=off workdir=off rm=0
+[2026-06-01 20:42:02] START name=dnsbox pid=6814 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-06-01 20:45:47] EXIT  name=dnsbox pid=6814 code=0

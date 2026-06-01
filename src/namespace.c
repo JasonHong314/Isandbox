@@ -87,10 +87,6 @@ static int setup_mount_namespace(sandbox_config_t *cfg) {
             return -1;
         }
 
-        if (lsandbox_setup_sandbox_resolv_conf() < 0) {
-            fprintf(stderr, "Warning: failed to setup sandbox resolv.conf\n");
-        }
-
         return 0;
     }
 

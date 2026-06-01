@@ -239,6 +239,91 @@ static int setup_private_dev(const char *root) {
     return 0;
 }
 
+static int copy_file_content(const char *src, const char *dst) {
+    FILE *in = fopen(src, "r");
+    FILE *out;
+    char buf[4096];
+    size_t n;
+
+    if (in == NULL) {
+        return -1;
+    }
+
+    unlink(dst);
+
+    out = fopen(dst, "w");
+    if (out == NULL) {
+        fclose(in);
+        return -1;
+    }
+
+    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+        if (fwrite(buf, 1, n, out) != n) {
+            fclose(in);
+            fclose(out);
+            return -1;
+        }
+    }
+
+    fclose(in);
+    fclose(out);
+    return 0;
+}
+
+static int setup_resolv_conf(const sandbox_config_t *cfg) {
+    char etc_dir[LSANDBOX_PATH_MAX];
+    char resolv_path[LSANDBOX_PATH_MAX];
+    int n;
+
+    if (cfg == NULL) {
+        return -1;
+    }
+
+    n = snprintf(etc_dir, sizeof(etc_dir), "%s/etc", cfg->merged_root_dir);
+    if (n < 0 || (size_t)n >= sizeof(etc_dir)) {
+        fprintf(stderr, "Error: /etc path too long\n");
+        return -1;
+    }
+
+    if (lsandbox_mkdir_p(etc_dir, 0755) < 0) {
+        return -1;
+    }
+
+    n = snprintf(resolv_path,
+                 sizeof(resolv_path),
+                 "%s/etc/resolv.conf",
+                 cfg->merged_root_dir);
+    if (n < 0 || (size_t)n >= sizeof(resolv_path)) {
+        fprintf(stderr, "Error: resolv.conf path too long\n");
+        return -1;
+    }
+
+    if (copy_file_content("/etc/resolv.conf", resolv_path) == 0) {
+        chmod(resolv_path, 0644);
+        return 0;
+    }
+
+    unlink(resolv_path);
+
+    FILE *fp = fopen(resolv_path, "w");
+    if (fp == NULL) {
+        fprintf(stderr, "Error: create sandbox resolv.conf failed: %s\n",
+                strerror(errno));
+        return -1;
+    }
+
+    fprintf(fp, "nameserver 1.1.1.1\n");
+    fprintf(fp, "nameserver 8.8.8.8\n");
+
+    fclose(fp);
+    chmod(resolv_path, 0644);
+
+    fprintf(stderr,
+            "Warning: host /etc/resolv.conf not available, using fallback DNS\n");
+
+    return 0;
+}
+
 static int mount_runtime_fs(const sandbox_config_t *cfg) {
     char path[LSANDBOX_PATH_MAX];
 
@@ -271,6 +356,10 @@ static int mount_runtime_fs(const sandbox_config_t *cfg) {
         fprintf(stderr, "Warning: mount tmpfs /run failed: %s\n", strerror(errno));
     }
 
+    if (setup_resolv_conf(cfg) < 0) {
+        fprintf(stderr, "Warning: setup resolv.conf failed\n");
+    }
+
     return 0;
 }
 
@@ -299,47 +388,5 @@ int lsandbox_enter_rootfs(const sandbox_config_t *cfg) {
         }
     }
 
-    return 0;
-}
-
-int lsandbox_setup_sandbox_resolv_conf(void) {
-    FILE *in = fopen("/etc/resolv.conf", "r");
-    FILE *out;
-    char lines[4096] = {0};
-    char buf[512];
-    int has_valid_nameserver = 0;
-
-    if (in) {
-        while (fgets(buf, sizeof(buf), in)) {
-            if (strstr(buf, "nameserver 127.") ||
-                strstr(buf, "nameserver ::1")) {
-                continue;
-            }
-
-            if (strncmp(buf, "nameserver", 10) == 0) {
-                has_valid_nameserver = 1;
-            }
-
-            strncat(lines, buf, sizeof(lines) - strlen(lines) - 1);
-        }
-        fclose(in);
-    }
-
-    out = fopen("/etc/resolv.conf", "w");
-    if (!out) {
-        perror("open sandbox /etc/resolv.conf");
-        return -1;
-    }
-
-    if (has_valid_nameserver) {
-        fputs(lines, out);
-    } else {
-        fprintf(out, "nameserver 223.5.5.5\n");
-        fprintf(out, "nameserver 114.114.114.114\n");
-        fprintf(out, "nameserver 8.8.8.8\n");
-        fprintf(out, "options timeout:2 attempts:2\n");
-    }
-
-    fclose(out);
     return 0;
 }
