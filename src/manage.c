@@ -11,306 +11,271 @@
 #include "sandbox.h"
 #include "utils.h"
 
-#define SANDBOX_ROOT "sandboxes"
-#define CGROUP_ROOT "/sys/fs/cgroup"
+#define BOXD "sandboxes"
+#define CGD  "/sys/fs/cgroup"
 
-static int is_valid_sandbox_name(const char *name) {
-    if (name == NULL || name[0] == '\0') {
-        return 0;
-    }
+/*
+ * manage.c is not in the sandbox hot path.  It is only the small
+ * command line part I used while checking boxes left by earlier runs.
+ * The real isolation work is in namespace/rootfs/cgroup/seccomp.
+ */
 
-    /*
-     * 禁止路径穿越：
-     * 只允许字母、数字、下划线、横杠。
-     */
-    for (const char *p = name; *p != '\0'; p++) {
-        char c = *p;
+static int
+badbox(const char *s)
+{
+  char c;
 
-        if ((c >= 'a' && c <= 'z') ||
-            (c >= 'A' && c <= 'Z') ||
-            (c >= '0' && c <= '9') ||
-            c == '_' ||
-            c == '-') {
-            continue;
-        }
-
-        return 0;
-    }
-
+  if(s == 0 || *s == 0)
     return 1;
+
+  while((c = *s++) != 0){
+    if(c >= 'a' && c <= 'z')
+      continue;
+    if(c >= 'A' && c <= 'Z')
+      continue;
+    if(c >= '0' && c <= '9')
+      continue;
+    if(c == '_' || c == '-')
+      continue;
+    return 1;
+  }
+  return 0;
 }
 
-static int build_sandbox_path(char *buf, size_t size, const char *name) {
-    int n;
+static int
+path(char *b, int n, const char *a, const char *c)
+{
+  int r;
 
-    if (!is_valid_sandbox_name(name)) {
-        fprintf(stderr, "Error: invalid sandbox name '%s'\n", name ? name : "(null)");
-        fprintf(stderr, "Allowed characters: letters, digits, underscore, hyphen\n");
-        return -1;
-    }
+  r = snprintf(b, n, "%s/%s", a, c);
+  if(r < 0 || r >= n){
+    fprintf(stderr, "lsandbox: name is too long: %s/%s\n", a, c);
+    return -1;
+  }
+  return 0;
+}
 
-    n = snprintf(buf, size, "%s/%s", SANDBOX_ROOT, name);
-    if (n < 0 || (size_t)n >= size) {
-        fprintf(stderr, "Error: sandbox path too long\n");
-        return -1;
-    }
+static int
+boxpath(char *b, int n, const char *name)
+{
+  if(badbox(name)){
+    fprintf(stderr, "lsandbox: bad box name %s\n", name ? name : "(nil)");
+    fprintf(stderr, "lsandbox: use letters, digits, '_' or '-'\n");
+    return -1;
+  }
+  return path(b, n, BOXD, name);
+}
 
+static int
+dirp(const char *p)
+{
+  struct stat st;
+
+  if(stat(p, &st) < 0)
     return 0;
+  return S_ISDIR(st.st_mode);
 }
 
-static int build_child_path(char *buf, size_t size, const char *base, const char *child) {
-    int n = snprintf(buf, size, "%s/%s", base, child);
+/* Count only for inspect.  Errors are ignored; sandboxes may contain
+ * root-owned overlay work dirs after an interrupted sudo run. */
+static unsigned long long
+nentry(const char *p)
+{
+  DIR *d;
+  struct dirent *e;
+  unsigned long long n;
 
-    if (n < 0 || (size_t)n >= size) {
-        fprintf(stderr, "Error: path too long: %s/%s\n", base, child);
-        return -1;
-    }
-
+  d = opendir(p);
+  if(d == 0)
     return 0;
-}
 
-static int is_directory(const char *path) {
+  n = 0;
+  while((e = readdir(d)) != 0){
+    char q[LSANDBOX_PATH_MAX];
     struct stat st;
 
-    if (stat(path, &st) < 0) {
-        return 0;
-    }
+    if(strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0)
+      continue;
+    if(path(q, sizeof q, p, e->d_name) < 0)
+      continue;
+    if(lstat(q, &st) < 0)
+      continue;
 
-    return S_ISDIR(st.st_mode);
+    n++;
+    if(S_ISDIR(st.st_mode))
+      n += nentry(q);
+  }
+  closedir(d);
+  return n;
 }
 
-static unsigned long long count_files_recursive(const char *path) {
-    DIR *dir = opendir(path);
-    struct dirent *entry;
-    unsigned long long count = 0;
-
-    if (dir == NULL) {
-        return 0;
-    }
-
-    while ((entry = readdir(dir)) != NULL) {
-        char child[LSANDBOX_PATH_MAX];
-        struct stat st;
-
-        if (strcmp(entry->d_name, ".") == 0 ||
-            strcmp(entry->d_name, "..") == 0) {
-            continue;
-        }
-
-        if (build_child_path(child, sizeof(child), path, entry->d_name) < 0) {
-            continue;
-        }
-
-        if (lstat(child, &st) < 0) {
-            continue;
-        }
-
-        count++;
-
-        if (S_ISDIR(st.st_mode)) {
-            count += count_files_recursive(child);
-        }
-    }
-
-    closedir(dir);
-    return count;
+static void
+showdir(const char *tag, const char *p)
+{
+  printf("  %-11s %s  %s\n", tag, dirp(p) ? "ok " : "-- ", p);
 }
 
-int lsandbox_manage_list(void) {
-    DIR *dir;
-    struct dirent *entry;
-    int found = 0;
+int
+lsandbox_manage_list(void)
+{
+  DIR *d;
+  struct dirent *e;
+  int n;
 
-    if (!lsandbox_path_exists(SANDBOX_ROOT)) {
-        printf("No sandboxes found. Directory '%s' does not exist.\n", SANDBOX_ROOT);
-        return 0;
-    }
-
-    dir = opendir(SANDBOX_ROOT);
-    if (dir == NULL) {
-        fprintf(stderr, "Error: opendir '%s' failed: %s\n",
-                SANDBOX_ROOT, strerror(errno));
-        return 1;
-    }
-
-    printf("Sandboxes:\n");
-
-    while ((entry = readdir(dir)) != NULL) {
-        char path[LSANDBOX_PATH_MAX];
-
-        if (strcmp(entry->d_name, ".") == 0 ||
-            strcmp(entry->d_name, "..") == 0) {
-            continue;
-        }
-
-        if (build_child_path(path, sizeof(path), SANDBOX_ROOT, entry->d_name) < 0) {
-            continue;
-        }
-
-        if (is_directory(path)) {
-            printf("  %s\n", entry->d_name);
-            found = 1;
-        }
-    }
-
-    closedir(dir);
-
-    if (!found) {
-        printf("  (none)\n");
-    }
-
+  if(!lsandbox_path_exists(BOXD)){
+    printf("no sandboxes yet (%s not created)\n", BOXD);
     return 0;
+  }
+
+  d = opendir(BOXD);
+  if(d == 0){
+    fprintf(stderr, "lsandbox: cannot read %s: %s\n", BOXD, strerror(errno));
+    return 1;
+  }
+
+  n = 0;
+  while((e = readdir(d)) != 0){
+    char p[LSANDBOX_PATH_MAX];
+
+    if(e->d_name[0] == '.')
+      continue;
+    if(path(p, sizeof p, BOXD, e->d_name) < 0)
+      continue;
+    if(!dirp(p))
+      continue;
+
+    if(n++ == 0)
+      printf("boxes under %s:\n", BOXD);
+    printf("  %s\n", e->d_name);
+  }
+
+  closedir(d);
+  if(n == 0)
+    printf("boxes under %s: none\n", BOXD);
+  return 0;
 }
 
-int lsandbox_manage_inspect(const char *name) {
-    char sandbox_dir[LSANDBOX_PATH_MAX];
-    char upper_tmp[LSANDBOX_PATH_MAX];
-    char work_tmp[LSANDBOX_PATH_MAX];
-    char merged_tmp[LSANDBOX_PATH_MAX];
+int
+lsandbox_manage_inspect(const char *name)
+{
+  char b[LSANDBOX_PATH_MAX];
+  char up[LSANDBOX_PATH_MAX], wk[LSANDBOX_PATH_MAX], mg[LSANDBOX_PATH_MAX];
+  char rup[LSANDBOX_PATH_MAX], rwk[LSANDBOX_PATH_MAX], rmg[LSANDBOX_PATH_MAX];
+  char cg[LSANDBOX_PATH_MAX];
 
-    if (build_sandbox_path(sandbox_dir, sizeof(sandbox_dir), name) < 0) {
-        return 1;
-    }
+  if(boxpath(b, sizeof b, name) < 0)
+    return 1;
 
-    if (build_child_path(upper_tmp, sizeof(upper_tmp), sandbox_dir, "upper_tmp") < 0) {
-        return 1;
-    }
+  if(path(up,  sizeof up,  b, "upper_tmp") < 0) return 1;
+  if(path(wk,  sizeof wk,  b, "work_tmp") < 0) return 1;
+  if(path(mg,  sizeof mg,  b, "merged_tmp") < 0) return 1;
+  if(path(rup, sizeof rup, b, "upper_root") < 0) return 1;
+  if(path(rwk, sizeof rwk, b, "work_root") < 0) return 1;
+  if(path(rmg, sizeof rmg, b, "merged_root") < 0) return 1;
 
-    if (build_child_path(work_tmp, sizeof(work_tmp), sandbox_dir, "work_tmp") < 0) {
-        return 1;
-    }
+  if(snprintf(cg, sizeof cg, "%s/lsandbox_%s", CGD, name) >= (int)sizeof cg){
+    fprintf(stderr, "lsandbox: cgroup name too long\n");
+    return 1;
+  }
 
-    if (build_child_path(merged_tmp, sizeof(merged_tmp), sandbox_dir, "merged_tmp") < 0) {
-        return 1;
-    }
+  printf("box %s\n", name);
+  printf("  dir         %s  %s\n", dirp(b) ? "ok " : "-- ", b);
+  printf("\ntmp overlay\n");
+  showdir("upper", up);
+  showdir("work", wk);
+  showdir("merged", mg);
+  printf("\nroot overlay\n");
+  showdir("upper", rup);
+  showdir("work", rwk);
+  showdir("merged", rmg);
 
-    printf("Sandbox: %s\n", name);
-    printf("Directory: %s\n", sandbox_dir);
-    printf("Exists: %s\n", is_directory(sandbox_dir) ? "yes" : "no");
-    printf("\n");
+  if(dirp(up))
+    printf("\nupper_tmp file count: %llu\n", nentry(up));
+  if(dirp(rup))
+    printf("upper_root file count: %llu\n", nentry(rup));
 
-    printf("Overlay directories:\n");
-    printf("  upper_tmp : %s [%s]\n", upper_tmp, is_directory(upper_tmp) ? "exists" : "missing");
-    printf("  work_tmp  : %s [%s]\n", work_tmp, is_directory(work_tmp) ? "exists" : "missing");
-    printf("  merged_tmp: %s [%s]\n", merged_tmp, is_directory(merged_tmp) ? "exists" : "missing");
-    printf("\n");
-
-    if (is_directory(upper_tmp)) {
-        printf("upper_tmp entries: %llu\n", count_files_recursive(upper_tmp));
-    }
-
-    printf("cgroup path: /sys/fs/cgroup/lsandbox_%s\n", name);
-
-    return 0;
+  printf("cgroup: %s  %s\n", dirp(cg) ? "ok " : "-- ", cg);
+  return 0;
 }
 
-int lsandbox_manage_clean(const char *name) {
-    char sandbox_dir[LSANDBOX_PATH_MAX];
-    char upper_tmp[LSANDBOX_PATH_MAX];
-    char work_tmp[LSANDBOX_PATH_MAX];
-    char merged_tmp[LSANDBOX_PATH_MAX];
+int
+lsandbox_manage_clean(const char *name)
+{
+  char b[LSANDBOX_PATH_MAX];
+  char p[3][LSANDBOX_PATH_MAX];
+  int i;
 
-    if (build_sandbox_path(sandbox_dir, sizeof(sandbox_dir), name) < 0) {
-        return 1;
-    }
+  if(boxpath(b, sizeof b, name) < 0)
+    return 1;
+  if(!dirp(b)){
+    fprintf(stderr, "lsandbox: no such box: %s\n", name);
+    return 1;
+  }
 
-    if (!is_directory(sandbox_dir)) {
-        fprintf(stderr, "Error: sandbox '%s' does not exist\n", name);
-        return 1;
-    }
+  if(path(p[0], sizeof p[0], b, "upper_tmp") < 0) return 1;
+  if(path(p[1], sizeof p[1], b, "work_tmp") < 0) return 1;
+  if(path(p[2], sizeof p[2], b, "merged_tmp") < 0) return 1;
 
-    if (build_child_path(upper_tmp, sizeof(upper_tmp), sandbox_dir, "upper_tmp") < 0) {
-        return 1;
-    }
+  for(i = 0; i < 3; i++)
+    lsandbox_remove_recursive(p[i]);
+  if(lsandbox_mkdir_p(p[0], 0755) < 0) return 1;
+  if(lsandbox_mkdir_p(p[1], 0755) < 0) return 1;
+  if(lsandbox_mkdir_p(p[2], 0755) < 0) return 1;
 
-    if (build_child_path(work_tmp, sizeof(work_tmp), sandbox_dir, "work_tmp") < 0) {
-        return 1;
-    }
-
-    if (build_child_path(merged_tmp, sizeof(merged_tmp), sandbox_dir, "merged_tmp") < 0) {
-        return 1;
-    }
-
-    /*
-     * clean：保留 sandboxes/<name>，只清空 overlay 工作目录。
-     */
-    lsandbox_remove_recursive(upper_tmp);
-    lsandbox_remove_recursive(work_tmp);
-    lsandbox_remove_recursive(merged_tmp);
-
-    if (lsandbox_mkdir_p(upper_tmp, 0755) < 0) {
-        return 1;
-    }
-
-    if (lsandbox_mkdir_p(work_tmp, 0755) < 0) {
-        return 1;
-    }
-
-    if (lsandbox_mkdir_p(merged_tmp, 0755) < 0) {
-        return 1;
-    }
-
-    printf("Cleaned sandbox '%s'\n", name);
-    return 0;
+  printf("cleaned %s tmp overlay\n", name);
+  return 0;
 }
 
-int lsandbox_manage_delete(const char *name) {
-    char sandbox_dir[LSANDBOX_PATH_MAX];
+int
+lsandbox_manage_delete(const char *name)
+{
+  char b[LSANDBOX_PATH_MAX];
 
-    if (build_sandbox_path(sandbox_dir, sizeof(sandbox_dir), name) < 0) {
-        return 1;
-    }
+  if(boxpath(b, sizeof b, name) < 0)
+    return 1;
+  if(!dirp(b)){
+    fprintf(stderr, "lsandbox: no such box: %s\n", name);
+    return 1;
+  }
+  if(lsandbox_remove_recursive(b) < 0)
+    return 1;
 
-    if (!is_directory(sandbox_dir)) {
-        fprintf(stderr, "Error: sandbox '%s' does not exist\n", name);
-        return 1;
-    }
-
-    if (lsandbox_remove_recursive(sandbox_dir) < 0) {
-        return 1;
-    }
-
-    printf("Deleted sandbox '%s'\n", name);
-    return 0;
+  printf("removed %s\n", name);
+  return 0;
 }
 
-int lsandbox_manage_clean_cgroups(void) {
-    DIR *dir;
-    struct dirent *entry;
-    int removed = 0;
+int
+lsandbox_manage_clean_cgroups(void)
+{
+  DIR *d;
+  struct dirent *e;
+  int n;
 
-    dir = opendir(CGROUP_ROOT);
-    if (dir == NULL) {
-        fprintf(stderr, "Error: opendir '%s' failed: %s\n",
-                CGROUP_ROOT, strerror(errno));
-        return 1;
+  d = opendir(CGD);
+  if(d == 0){
+    fprintf(stderr, "lsandbox: cannot read %s: %s\n", CGD, strerror(errno));
+    return 1;
+  }
+
+  n = 0;
+  while((e = readdir(d)) != 0){
+    char p[LSANDBOX_PATH_MAX];
+
+    if(strncmp(e->d_name, "lsandbox_", 9) != 0)
+      continue;
+    if(path(p, sizeof p, CGD, e->d_name) < 0)
+      continue;
+
+    if(rmdir(p) == 0){
+      printf("removed cgroup %s\n", p);
+      n++;
+    } else {
+      fprintf(stderr, "lsandbox: left %s: %s\n", p, strerror(errno));
     }
+  }
 
-    while ((entry = readdir(dir)) != NULL) {
-        char path[LSANDBOX_PATH_MAX];
-
-        if (strncmp(entry->d_name, "lsandbox_", strlen("lsandbox_")) != 0) {
-            continue;
-        }
-
-        if (build_child_path(path, sizeof(path), CGROUP_ROOT, entry->d_name) < 0) {
-            continue;
-        }
-
-        if (rmdir(path) == 0) {
-            printf("Removed cgroup: %s\n", path);
-            removed++;
-        } else {
-            fprintf(stderr, "Warning: failed to remove cgroup '%s': %s\n",
-                    path, strerror(errno));
-        }
-    }
-
-    closedir(dir);
-
-    if (removed == 0) {
-        printf("No removable lsandbox cgroups found.\n");
-    }
-
-    return 0;
+  closedir(d);
+  if(n == 0)
+    printf("no empty lsandbox cgroup found\n");
+  return 0;
 }

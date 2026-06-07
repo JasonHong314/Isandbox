@@ -131,3 +131,24 @@ python3 -c "print(123)"
 [2026-06-01 19:30:09] START name=vscodebox pid=23856 cmd="bash" net=host mem=4G pids=512 cpu=100 seccomp=off tmp=off workdir=off rm=0
 [2026-06-01 20:42:02] START name=dnsbox pid=6814 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
 [2026-06-01 20:45:47] EXIT  name=dnsbox pid=6814 code=0
+[2026-06-04 11:15:40] START name=forktest pid=24165 cmd="python3 tests/samples/fork_bomb.py" net=host mem=1G pids=20 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-06-04 11:15:40] EXIT  name=forktest pid=24165 code=1
+[2026-06-04 11:17:28] START name=hello pid=26471 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-06-04 11:20:23] EXIT  name=hello pid=26471 code=0
+[2026-06-04 11:30:30] START name=memory_test pid=42423 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-06-04 11:31:56] EXIT  name=memory_test pid=42423 code=130
+[2026-06-04 11:33:05] START name=memory_test pid=46491 cmd="bash" net=host mem=64M pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-06-04 11:35:09] SIGNAL name=memory_test pid=46491 signal=9
+[2026-06-04 12:03:34] START name=pidtest pid=81418 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-06-04 12:44:53] EXIT  name=pidtest pid=81418 code=0
+[2026-06-04 16:28:13] START name=test pid=49561 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-06-04 16:29:37] EXIT  name=test pid=49561 code=0
+[2026-06-04 16:30:00] START name=limitbox pid=50515 cmd="bash" net=host mem=124M pids=32 cpu=50 seccomp=basic tmp=off workdir=off rm=0
+[2026-06-04 16:30:50] SIGNAL name=limitbox pid=50515 signal=9
+[2026-06-04 16:31:10] START name=limitbox pid=51286 cmd="bash" net=host mem=124M pids=32 cpu=50 seccomp=basic tmp=off workdir=off rm=0
+[2026-06-07 12:19:17] START name=newbox pid=74331 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-06-07 12:22:09] EXIT  name=newbox pid=74331 code=6
+[2026-06-07 12:22:15] START name=netbox pid=96311 cmd="bash" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-06-07 12:26:33] EXIT  name=netbox pid=96311 code=0
+[2026-06-07 12:26:42] START name=deltest pid=104628 cmd="bash -c rm -f /home/hong/Isandbox/README.md && echo 'deleted in sandbox'" net=host mem=1G pids=128 cpu=100 seccomp=basic tmp=off workdir=off rm=1
+[2026-06-07 12:26:42] EXIT  name=deltest pid=104628 code=0
